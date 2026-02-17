@@ -26,7 +26,7 @@ except ImportError:
 # ==================== CONFIGURATION ====================
 # Load from environment variables
 API_URL = os.getenv('API_URL')
-NOTIFICATION_METHOD = os.getenv('NOTIFICATION_METHOD', 'email')  # 'email', 'webhook', or 'both'
+NOTIFICATION_METHOD = os.getenv('NOTIFICATION_METHOD', 'email')  # 'email', 'webhook', 'slack_dm', or 'both'
 
 # Email configuration (for SMTP method)
 SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
@@ -37,6 +37,10 @@ RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')
 
 # Webhook configuration (optional)
 WEBHOOK_URL = os.getenv('WEBHOOK_URL')
+
+# Slack DM configuration (optional)
+SLACK_BOT_TOKEN = os.getenv('SLACK_BOT_TOKEN')  # xoxb-...
+SLACK_USER_ID = os.getenv('SLACK_USER_ID')  # U01234567
 
 # Monitoring settings
 SLEEP_BUFFER = int(os.getenv('SLEEP_BUFFER', '5'))  # Seconds before reset time to wake up
@@ -114,6 +118,47 @@ def send_webhook(payload: Dict) -> bool:
         return False
 
 
+def send_slack_dm(message: str) -> bool:
+    """
+    Send direct message via Slack bot.
+    
+    Args:
+        message: Message text to send
+        
+    Returns:
+        True if message sent successfully, False otherwise
+    """
+    if not all([SLACK_BOT_TOKEN, SLACK_USER_ID]):
+        logger.warning("Slack credentials not configured, skipping Slack DM")
+        return False
+    
+    try:
+        url = "https://slack.com/api/chat.postMessage"
+        headers = {
+            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "channel": SLACK_USER_ID,
+            "text": message
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response.raise_for_status()
+        
+        result = response.json()
+        if result.get("ok"):
+            logger.info(f"Slack DM sent successfully to {SLACK_USER_ID}")
+            return True
+        else:
+            logger.error(f"Slack API error: {result.get('error')}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to send Slack DM: {e}")
+        return False
+
+
 def send_reset_notification(reset_type: str, reset_time: str, utilization: float):
     """Send notification that a reset has occurred using configured method(s)."""
     
@@ -145,6 +190,16 @@ Automated notification from Reset Monitor
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
         send_webhook(payload)
+    
+    # Slack DM notification
+    if NOTIFICATION_METHOD == 'slack_dm':
+        message = f"""🔄 *API Reset: {reset_type}*
+
+Reset Time: `{reset_time}`
+Previous Utilization: {utilization}%
+
+The API has been reset and is ready for new requests."""
+        send_slack_dm(message)
 
 
 # ==================== API FUNCTIONS ====================
@@ -328,13 +383,19 @@ if __name__ == "__main__":
     if NOTIFICATION_METHOD in ['email', 'both']:
         if not all([SMTP_USER, SMTP_PASSWORD, RECIPIENT_EMAIL]):
             logger.error("Email notification requires: SMTP_USER, SMTP_PASSWORD, RECIPIENT_EMAIL")
-            logger.error("Either set these variables or change NOTIFICATION_METHOD to 'webhook'")
+            logger.error("Either set these variables or change NOTIFICATION_METHOD")
             exit(1)
     
     if NOTIFICATION_METHOD in ['webhook', 'both']:
         if not WEBHOOK_URL:
             logger.error("Webhook notification requires: WEBHOOK_URL")
-            logger.error("Either set this variable or change NOTIFICATION_METHOD to 'email'")
+            logger.error("Either set this variable or change NOTIFICATION_METHOD")
+            exit(1)
+    
+    if NOTIFICATION_METHOD == 'slack_dm':
+        if not all([SLACK_BOT_TOKEN, SLACK_USER_ID]):
+            logger.error("Slack DM notification requires: SLACK_BOT_TOKEN, SLACK_USER_ID")
+            logger.error("See SLACK_SETUP.md for instructions")
             exit(1)
     
     logger.info(f"Configuration loaded:")
@@ -344,6 +405,8 @@ if __name__ == "__main__":
         logger.info(f"  Email: {SMTP_USER} → {RECIPIENT_EMAIL}")
     if NOTIFICATION_METHOD in ['webhook', 'both']:
         logger.info(f"  Webhook: {WEBHOOK_URL}")
+    if NOTIFICATION_METHOD == 'slack_dm':
+        logger.info(f"  Slack DM: {SLACK_USER_ID}")
     
     try:
         monitor_resets()

@@ -1,12 +1,12 @@
 # API Reset Time Monitor
 
-Continuously monitors the Claude usage API endpoint for reset times and sends email notifications when resets occur.
+Continuously monitors an API endpoint for reset times and sends email notifications when resets occur.
 
 ## Features
 
 - ✅ **Intelligent sleep scheduling** - sleeps until reset time instead of continuous polling
-- ✅ Monitors both reset periods (5 hour and weekly)
-- ✅ Sends email notifications when resets occur
+- ✅ Monitors multiple reset periods (e.g., five_hour, seven_day)
+- ✅ Sends Gmail notifications when resets occur
 - ✅ Automatically fetches fresh data after each reset
 - ✅ Robust error handling and exponential backoff
 - ✅ Minimal API calls - only fetches when needed
@@ -17,12 +17,14 @@ Continuously monitors the Claude usage API endpoint for reset times and sends em
 - Python 3.7+
 - One of the following for notifications:
   - Gmail account with App Password enabled, OR
-  - Webhook endpoint (Discord, Slack, custom server)
+  - Webhook endpoint (Discord, Slack channel), OR
+  - Slack Bot for direct messages, OR
+  - Any combination of the above
 - Linux server (optional, for systemd service)
 
 ## Notification Methods
 
-The script supports three notification methods:
+The script supports four notification methods:
 
 ### 1. Email (SMTP)
 Send notifications via any SMTP server (Gmail, Outlook, custom mail server).
@@ -37,7 +39,7 @@ Send notifications via any SMTP server (Gmail, Outlook, custom mail server).
 - Credentials stored in environment
 
 ### 2. Webhook
-Send JSON payload to any webhook endpoint.
+Send JSON payload to any webhook endpoint (Discord channels, Slack channels, custom servers).
 
 **Pros:**
 - No credentials needed (just a URL)
@@ -46,7 +48,27 @@ Send JSON payload to any webhook endpoint.
 - Can trigger other automations
 
 **Cons:**
+- Posts to a channel (public to channel members)
 - Requires setting up a webhook receiver
+
+### 3. Slack Direct Message (Recommended!)
+Send messages directly to your Slack DMs via a Slack bot.
+
+**Pros:**
+- **Private** - Only you see notifications
+- No channel spam
+- Mobile push notifications via Slack app
+- Works across workspaces
+- Searchable message history
+
+**Cons:**
+- Requires creating a Slack app (5 minutes)
+- Need bot token and user ID
+
+See **[SLACK_SETUP.md](SLACK_SETUP.md)** for step-by-step instructions.
+
+### 4. Multiple Methods
+Send notifications via multiple methods simultaneously (e.g., email + Slack DM).
 
 **Webhook Payload Example:**
 ```json
@@ -58,9 +80,6 @@ Send JSON payload to any webhook endpoint.
   "timestamp": "2026-02-17T04:00:05+00:00"
 }
 ```
-
-### 3. Both
-Send notifications via both email and webhook simultaneously.
 
 ## Setup Instructions
 
@@ -81,7 +100,7 @@ nano .env
 
 **Required for all:**
 - `API_URL` - Your API endpoint
-- `NOTIFICATION_METHOD` - Choose `email`, `webhook`, or `both`
+- `NOTIFICATION_METHOD` - Choose `email`, `webhook`, `slack_dm`, or `both`
 
 **Required for email notifications:**
 - `SMTP_USER` - Your email address
@@ -92,6 +111,10 @@ nano .env
 
 **Required for webhook notifications:**
 - `WEBHOOK_URL` - Your webhook endpoint URL
+
+**Required for Slack DM notifications:**
+- `SLACK_BOT_TOKEN` - Your Slack bot token (starts with `xoxb-`)
+- `SLACK_USER_ID` - Your Slack user ID (starts with `U`)
 
 ### 3a. Gmail Setup (if using email)
 
@@ -120,6 +143,24 @@ You need a Gmail App Password (not your regular password):
 
 #### Custom Webhook:
 Point `WEBHOOK_URL` to your own server endpoint that accepts POST requests with JSON.
+
+### 3c. Slack DM Setup (if using Slack DMs)
+
+**Quick Setup (5 minutes):**
+
+1. Create a Slack App at https://api.slack.com/apps
+2. Add the `chat:write` bot scope
+3. Install app to workspace → Copy **Bot User OAuth Token** (starts with `xoxb-`)
+4. Get your **User ID**:
+   - Click your profile → Profile → ⋯ → Copy member ID (starts with `U`)
+5. Add to `.env`:
+   ```env
+   NOTIFICATION_METHOD=slack_dm
+   SLACK_BOT_TOKEN=xoxb-your-token-here
+   SLACK_USER_ID=U01234567
+   ```
+
+**Full instructions:** See **[SLACK_SETUP.md](SLACK_SETUP.md)** for detailed step-by-step guide.
 
 ### 4. Test the Script
 
@@ -291,6 +332,21 @@ The API has been reset and is ready for new requests.
 - Check webhook server logs for errors
 - Verify URL is complete and correctly formatted
 
+### Slack DM Not Working
+
+- Verify bot token starts with `xoxb-` (not `xoxp-`)
+- Verify user ID starts with `U` (not `C` for channels)
+- Check that `chat:write` scope is added to the bot
+- Reinstall the Slack app after adding scopes
+- Make sure bot is installed to your workspace
+- Test manually: 
+  ```bash
+  curl -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"channel":"'$SLACK_USER_ID'","text":"Test"}' \
+    https://slack.com/api/chat.postMessage
+  ```
+
 ### Script Not Finding Resets
 
 - Verify API_URL is correct and accessible
@@ -312,13 +368,15 @@ All configuration is done via environment variables in the `.env` file:
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
 | `API_URL` | Your API endpoint | Yes | - |
-| `NOTIFICATION_METHOD` | `email`, `webhook`, or `both` | Yes | `email` |
+| `NOTIFICATION_METHOD` | `email`, `webhook`, `slack_dm`, or `both` | Yes | `email` |
 | `SMTP_HOST` | SMTP server hostname | If using email | `smtp.gmail.com` |
 | `SMTP_PORT` | SMTP server port | If using email | `587` |
 | `SMTP_USER` | Your email address | If using email | - |
 | `SMTP_PASSWORD` | Email password/app password | If using email | - |
 | `RECIPIENT_EMAIL` | Notification recipient email | If using email | - |
 | `WEBHOOK_URL` | Webhook endpoint URL | If using webhook | - |
+| `SLACK_BOT_TOKEN` | Slack bot token (xoxb-...) | If using Slack DM | - |
+| `SLACK_USER_ID` | Your Slack user ID (U...) | If using Slack DM | - |
 | `SLEEP_BUFFER` | Seconds to wake before reset | No | `5` |
 | `MAX_RETRY_DELAY` | Max seconds between retries | No | `300` |
 
